@@ -22,7 +22,7 @@
  ***************************************************************************/
 """
 #importing QgsProject
-from qgis.core import QgsProject , Qgis
+from qgis.core import QgsProject , Qgis , QgsExpression, QgsVectorFileWriter, QgsFeatureRequest
 
 
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
@@ -182,8 +182,26 @@ class ShapefileCreator:
                 self.tr(u'&Create Shapefile'),
                 action)
             self.iface.removeToolBarIcon(action)
-
-
+    
+    def select_output_file(self):
+        filename, _filter = QFileDialog.getSaveFileName(
+            self.dlg, "Select output file ","", '*.shp')
+        self.dlg.lineEdit_2.setText(filename)
+        
+        
+    def select(self):
+        query = self.dlg.textEdit.toPlainText()                                 #Takes-in input condition via textEdit
+        
+        layers = QgsProject.instance().layerTreeRoot().children()    
+        selectedLayerIndex = self.dlg.comboBox.currentIndex()
+        selectedLayer = layers[selectedLayerIndex].layer()
+        fieldnames = selectedLayer.getFeatures()
+        selectedLayer.selectByExpression(query)                          #executes the test condition
+        selectedLayer.selectedFeatures()
+        #selection = selectedLayer.getFeatures(QgsFeatureRequest().setFilterExpression(query))
+        #selectedLayer.selectByIds([k.id() for k in selection])
+        
+                
     def run(self):
         """Run method that performs all the real work"""
 
@@ -192,20 +210,59 @@ class ShapefileCreator:
         if self.first_start == True:
             self.first_start = False
             self.dlg = ShapefileCreatorDialog()
+            
+            
+        self.dlg.pushButton.clicked.connect(self.select_output_file)   
         
-        # Fetch the currently loaded layers
-        layers = QgsProject.instance().layerTreeRoot().children()
-        # Clear the contents of the comboBox from previous runs
         self.dlg.comboBox.clear()
-        # Populate the comboBox with names of all the loaded layers
-        self.dlg.comboBox.addItems([layer.name() for layer in layers])
-
+        self.dlg.comboBox_2.clear()
+        
+        layers = QgsProject.instance().layerTreeRoot().children()
+        layer_list = []
+        for layer in layers:
+            layer_list.append(layer.name())
+        self.dlg.comboBox.addItems(layer_list)
+        
+        def attribute_type():                                   #To extract attributes of the selected layer with its datatype shown in comboBox_2 and lineEdit
+            self.dlg.lineEdit.clear()
+            selectedLayerIndex = self.dlg.comboBox.currentIndex()
+            selectedLayer = layers[selectedLayerIndex].layer()
+            fieldtype = [field.typeName() for field in selectedLayer.fields()]
+            attr = self.dlg.comboBox_2.currentIndex()
+            attr_type = str(fieldtype[attr])
+            self.dlg.lineEdit.setText(attr_type)
+                
+        def field_select():                                     #To display all the attributes of the layer using comboBox
+            self.dlg.comboBox_2.clear()
+            selectedLayerIndex = self.dlg.comboBox.currentIndex()
+            selectedLayer = layers[selectedLayerIndex].layer()
+            fields = [field.name() for field in selectedLayer.fields()]
+            self.dlg.comboBox_2.addItems(fields)
+            #To display the datatype of attribute, so that it helps in passing commands to retrieve essential data
+            self.dlg.comboBox_2.currentIndexChanged.connect(attribute_type)
+        
+        #count = self.dlg.comboBox.count()
+        #if count==1:
+        field_select()
+        # This connects the function to the layer combobox when changed
+        self.dlg.comboBox.currentIndexChanged.connect(field_select)
+        
+        self.dlg.pushButton_2.clicked.connect(self.select)
+        
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
         result = self.dlg.exec_()
         # See if OK was pressed
         if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass
+            filename = self.dlg.lineEdit_2.text()
+                    
+            selectedLayerIndex = self.dlg.comboBox.currentIndex()
+            selectedLayer = layers[selectedLayerIndex].layer()
+            QgsVectorFileWriter.writeAsVectorFormat( selectedLayer, filename, "utf-8", selectedLayer.crs(), "ESRI Shapefile", 1)
+                
+                
+            self.iface.messageBar().pushMessage(
+                "Success", "Output file written at " + filename,
+                level=Qgis.Success, duration=3)
+            self.dlg.textEdit.clear()
